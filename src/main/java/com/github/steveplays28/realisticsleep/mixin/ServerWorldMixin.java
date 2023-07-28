@@ -39,9 +39,9 @@ public abstract class ServerWorldMixin extends World {
 	@Unique
 	public long tickDelay;
 	@Unique
-	public long lastFluidTick;
-	@Unique
 	public String sleepMessage;
+	@Unique
+	public Boolean shouldSkipWeather;
 
 	@Shadow
 	@Final
@@ -73,9 +73,27 @@ public abstract class ServerWorldMixin extends World {
 
 	@Inject(method = "tick", at = @At(value = "INVOKE", target = "Lnet/minecraft/world/GameRules;getInt(Lnet/minecraft/world/GameRules$Key;)I"))
 	public void tickInject(BooleanSupplier shouldKeepTicking, CallbackInfo ci) {
-		// Check if anyone is sleeping
 		int sleepingPlayerCount = sleepManager.getSleeping();
+		// TODO: Don't assume the TPS is 20
+		int secondsUntilAwake = Math.abs(
+				SleepMath.calculateSecondsUntilAwake((int) worldProperties.getTimeOfDay() % 24000, nightTimeStepPerTick, 20));
 
+		// Check if the night has ended
+		if (secondsUntilAwake <= 0) {
+			// Set time of day to 0
+			worldProperties.setTimeOfDay(0);
+
+			if (sleepingPlayerCount < 0) {
+				if (shouldSkipWeather) {
+					clearWeather();
+					shouldSkipWeather = false;
+				}
+			} else {
+				clearWeather();
+			}
+		}
+
+		// Check if anyone is sleeping
 		if (sleepingPlayerCount <= 0) {
 			return;
 		}
@@ -92,7 +110,6 @@ public abstract class ServerWorldMixin extends World {
 		int chunkTickSpeedMultiplier = (int) Math.round(config.chunkTickSpeedMultiplier);
 		int raidTickSpeedMultiplier = (int) Math.round(config.raidTickSpeedMultiplier);
 
-		boolean doWeatherCycle = server.getGameRules().getBoolean(GameRules.DO_WEATHER_CYCLE);
 		boolean doDayLightCycle = server.getGameRules().getBoolean(GameRules.DO_DAYLIGHT_CYCLE);
 		int playersRequiredToSleepPercentage = server.getGameRules().getInt(GameRules.PLAYERS_SLEEPING_PERCENTAGE);
 		double playersRequiredToSleepRatio = server.getGameRules().getInt(GameRules.PLAYERS_SLEEPING_PERCENTAGE) / 100;
@@ -103,6 +120,8 @@ public abstract class ServerWorldMixin extends World {
 			if (!config.sendNotEnoughPlayersSleepingMessage) {
 				return;
 			}
+
+			shouldSkipWeather = true;
 
 			for (ServerPlayerEntity player : players) {
 				player.sendMessage(
@@ -138,11 +157,6 @@ public abstract class ServerWorldMixin extends World {
 		server.getPlayerManager().sendToDimension(
 				new WorldTimeUpdateS2CPacket(worldProperties.getTime(), worldProperties.getTimeOfDay(), doDayLightCycle), getRegistryKey());
 
-		// Send HUD message to all players
-		// TODO: Don't assume the TPS is 20
-		int secondsUntilAwake = Math.abs(
-				SleepMath.calculateSecondsUntilAwake((int) worldProperties.getTimeOfDay() % 24000, nightTimeStepPerTick, 20));
-
 		// Check if players are still supposed to be sleeping, and send a HUD message if so
 		if (secondsUntilAwake > 0) {
 			if (config.sendSleepingMessage) {
@@ -154,19 +168,6 @@ public abstract class ServerWorldMixin extends World {
 				for (ServerPlayerEntity player : players) {
 					player.sendMessage(Text.of(sleepMessage), true);
 				}
-			}
-		} else {
-			// Set time of day to 0
-			worldProperties.setTimeOfDay(0);
-
-			if (doWeatherCycle && (worldProperties.isRaining() || worldProperties.isThundering())) {
-				// Reset weather clock and clear weather
-				var nextRainTime = (int) (DAY_LENGTH * SleepMath.getRandomNumberInRange(0.5, 7.5));
-				worldProperties.setRainTime(nextRainTime);
-				worldProperties.setThunderTime(nextRainTime + (Math.random() > 0 ? 1 : -1));
-
-				worldProperties.setThundering(false);
-				worldProperties.setRaining(false);
 			}
 		}
 	}
@@ -214,5 +215,20 @@ public abstract class ServerWorldMixin extends World {
 		tickDelay = config.tickDelay;
 
 		ci.cancel();
+	}
+
+	@Unique
+	private void clearWeather() {
+		boolean doWeatherCycle = server.getGameRules().getBoolean(GameRules.DO_WEATHER_CYCLE);
+
+		if (doWeatherCycle && (worldProperties.isRaining() || worldProperties.isThundering())) {
+			// Reset weather clock and clear weather
+			var nextRainTime = (int) (DAY_LENGTH * SleepMath.getRandomNumberInRange(0.5, 7.5));
+			worldProperties.setRainTime(nextRainTime);
+			worldProperties.setThunderTime(nextRainTime + (Math.random() > 0 ? 1 : -1));
+
+			worldProperties.setThundering(false);
+			worldProperties.setRaining(false);
+		}
 	}
 }
