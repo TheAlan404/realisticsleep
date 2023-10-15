@@ -8,6 +8,7 @@ import net.minecraft.entity.EntityType;
 import net.minecraft.entity.LightningEntity;
 import net.minecraft.fluid.Fluid;
 import net.minecraft.network.packet.s2c.play.WorldTimeUpdateS2CPacket;
+import net.minecraft.registry.DynamicRegistryManager;
 import net.minecraft.server.MinecraftServer;
 import net.minecraft.server.network.ServerPlayerEntity;
 import net.minecraft.server.world.ServerChunkManager;
@@ -16,10 +17,11 @@ import net.minecraft.server.world.SleepManager;
 import net.minecraft.text.MutableText;
 import net.minecraft.text.Text;
 import net.minecraft.util.math.BlockPos;
+import net.minecraft.util.math.ChunkSectionPos;
 import net.minecraft.util.math.Vec3d;
 import net.minecraft.util.profiler.Profiler;
-import net.minecraft.util.registry.RegistryEntry;
-import net.minecraft.util.registry.RegistryKey;
+import net.minecraft.registry.entry.RegistryEntry;
+import net.minecraft.registry.RegistryKey;
 import net.minecraft.village.raid.RaidManager;
 import net.minecraft.world.*;
 import net.minecraft.world.biome.Biome;
@@ -79,6 +81,12 @@ public abstract class ServerWorldMixin extends World implements ServerWorldExten
 	@Final
 	private boolean shouldTickTime;
 
+	protected ServerWorldMixin(MutableWorldProperties properties, RegistryKey<World> registryRef, DynamicRegistryManager registryManager, RegistryEntry<DimensionType> dimensionEntry, Supplier<Profiler> profiler, boolean isClient, boolean debugWorld, long biomeAccess, int maxChainedNeighborUpdates) {
+		super(properties, registryRef, registryManager, dimensionEntry, profiler, isClient, debugWorld, biomeAccess,
+				maxChainedNeighborUpdates
+		);
+	}
+
 	@Shadow
 	public abstract List<ServerPlayerEntity> getPlayers();
 
@@ -101,10 +109,6 @@ public abstract class ServerWorldMixin extends World implements ServerWorldExten
 	@Shadow
 	@Final
 	private static int MAX_TICKS;
-
-	protected ServerWorldMixin(MutableWorldProperties properties, RegistryKey<World> registryRef, RegistryEntry<DimensionType> registryEntry, Supplier<Profiler> profiler, boolean isClient, boolean debugWorld, long seed, int maxChainedNeighborUpdates) {
-		super(properties, registryRef, registryEntry, profiler, isClient, debugWorld, seed, maxChainedNeighborUpdates);
-	}
 
 	@Inject(method = "tick", at = @At(value = "INVOKE", target = "Lnet/minecraft/world/GameRules;getInt(Lnet/minecraft/world/GameRules$Key;)I"))
 	public void tickInject(BooleanSupplier shouldKeepTicking, CallbackInfo ci) {
@@ -336,7 +340,9 @@ public abstract class ServerWorldMixin extends World implements ServerWorldExten
 		}
 
 		profiler.swap(String.format("Tick blocks (%s)", MOD_NAME));
-		for (var chunkSection : chunk.getSectionArray()) {
+		for (int l = 0; l < chunk.getSectionArray().length; l++) {
+			var chunkSection = chunk.getSectionArray()[l];
+
 			if (!chunkSection.hasRandomTicks()) {
 				continue;
 			}
@@ -348,7 +354,7 @@ public abstract class ServerWorldMixin extends World implements ServerWorldExten
 
 			// Crop growth speed multiplier
 			for (int i = 0; i < cropGrowthTickSpeedMultiplier; i++) {
-				int chunkSectionYOffset = chunkSection.getYOffset();
+				int chunkSectionYOffset = ChunkSectionPos.getBlockCoord(chunk.sectionIndexToCoord(l));
 				var randomPosInChunk = this.getRandomPosInChunk(chunkStartPosX, chunkSectionYOffset, chunkStartPosZ, 15);
 				var randomBlockStateInChunk = chunkSection.getBlockState(randomPosInChunk.getX() - chunkStartPosX,
 						randomPosInChunk.getY() - chunkSectionYOffset, randomPosInChunk.getZ() - chunkStartPosZ
@@ -366,14 +372,14 @@ public abstract class ServerWorldMixin extends World implements ServerWorldExten
 
 			// Precipitation tick speed multiplier
 			for (int i = 0; i < precipitationTickSpeedMultiplier; i++) {
-				int chunkSectionYOffset = chunkSection.getYOffset();
+				int chunkSectionYOffset = ChunkSectionPos.getBlockCoord(chunk.sectionIndexToCoord(l));
 				var randomPosInChunk = this.getRandomPosInChunk(chunkStartPosX, chunkSectionYOffset, chunkStartPosZ, 15);
 				var randomBlockStateInChunk = chunkSection.getBlockState(randomPosInChunk.getX() - chunkStartPosX,
 						randomPosInChunk.getY() - chunkSectionYOffset, randomPosInChunk.getZ() - chunkStartPosZ
 				);
 				var randomBlockInChunk = randomBlockStateInChunk.getBlock();
 				var biome = this.getBiome(randomPosInChunk).value();
-				var precipitation = biome.getPrecipitation();
+				var precipitation = biome.getPrecipitation(randomPosInChunk);
 
 				if (precipitation == Biome.Precipitation.RAIN && biome.isCold(randomPosInChunk)) {
 					precipitation = Biome.Precipitation.SNOW;
@@ -388,7 +394,7 @@ public abstract class ServerWorldMixin extends World implements ServerWorldExten
 
 			// Random tick speed multiplier
 			for (int j = 0; j < randomTickSpeed; j++) {
-				int chunkSectionYOffset = chunkSection.getYOffset();
+				int chunkSectionYOffset = ChunkSectionPos.getBlockCoord(chunk.sectionIndexToCoord(l));
 				var randomPosInChunk = this.getRandomPosInChunk(chunkStartPosX, chunkSectionYOffset, chunkStartPosZ, 15);
 				var randomBlockStateInChunk = chunkSection.getBlockState(randomPosInChunk.getX() - chunkStartPosX,
 						randomPosInChunk.getY() - chunkSectionYOffset, randomPosInChunk.getZ() - chunkStartPosZ
