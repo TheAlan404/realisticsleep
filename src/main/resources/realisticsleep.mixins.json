@@ -12,7 +12,8 @@
     "accessor.ServerWorldAccessor"
   ],
   "client": [
-    "WorldRendererMixin"
+    "WorldRendererMixin",
+    "sodium.SodiumCloudRendererMixin"
   ],
   "injectors": {
     "defaultRequire": 1
